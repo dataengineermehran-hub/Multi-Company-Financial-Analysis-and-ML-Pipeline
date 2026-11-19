@@ -1,0 +1,108 @@
+# Multi-Company Financial Analysis & Machine Learning Pipeline (Airflow + SQLite + Scikit-Learn)
+
+An end-to-end data and machine learning pipeline built with **Apache Airflow**, **SQLite**, and **Scikit-Learn** that ingests multi-company financial statements from raw Excel files (`.xlsx`), standardizes Persian/Arabic text and numbers, engineers financial features and ratios, trains classification and regression models, and audits output tables.
+
+> **Project Path:** `C:\Users\mehran\PycharmProjects\pythonProject\financial_statement`
+
+## 1. Plain-Language Overview: What Does This System Do?
+
+Financial statements across multiple companies and sheets (such as Income Statement, Balance Sheet, and Cash Flow) often come with formatting inconsistencies, including:
+
+* Persian or Arabic digits (`۰۱۲۳...` or `٠١٢٣...`), comma separators, or negative numbers enclosed in parentheses `(123)`
+* Half-spaces (`ZWNJ`) and character variations (`ي`/`ی` and `ك`/`ک`)
+* Inconsistent file names or Persian sheet names
+
+This pipeline automates the entire workflow in **4 sequential Airflow tasks**:
+
+1. **Ingest Excel Sheets to Tables (`ingest_excel_to_tables`):** Reads `.xlsx` files from `data\raw`, extracts company names and financial periods (`YYYY/MM/DD`), maps sheet names to standardized English table names (`tbl_*`), and stores structured records in SQLite.
+2. **Validate & Engineer Features (`validate_and_build_features`):** Records numeric/null row counts (`ml_validation_summary`) and computes financial features and ratios from income statement, balance sheet, and cash flow data—such as gross margin, operating margin, net margin, `ROA`, `ROE`, year-over-year revenue growth (`YoY`), and profitability labels (`is_profitable`)—stored in `ml_financial_features`.
+3. **Train Models & Save Predictions (`train_and_predict_models`):** Trains two core `scikit-learn` models:
+   * **Classification (`LogisticRegression`):** Predicts company profitability (`is_profitable`) and probability scores.
+   * **Regression (`Ridge`):** Predicts net profit margin (`net_margin`) and compares `MAE` and `RMSE` against a mean baseline (`DummyRegressor`).
+4. **Audit Output Tables (`audit_output_tables`):** Verifies that all expected tables exist in the SQLite database and contain non-zero row counts.
+
+## 2. Key Use Cases
+
+* **Unified Multi-Company Financial Analysis:** Consolidates scattered Excel financial statements into a single queryable SQLite database (`companies_financial_1403.db`).
+* **Financial Data Standardization:** Cleans inconsistent Persian/Arabic characters, number formats, and sheet names for downstream analytics and reporting.
+* **Quantitative Profitability & Margin Diagnostics:** Computes financial ratios automatically and tracks feature weights (`ml_feature_weights`) across classification and regression models.
+* **Foundation for BI, APIs, or Enterprise Databases:** Produces structured tables in SQLite that can feed dashboards, reporting tools, or relational server databases.
+
+## 3. Architecture & Data Flow
+
+### Project Directory Structure
+
+```text
+C:\Users\mehran\PycharmProjects\pythonProject\financial_statement\
+├── dag\
+│   └── companies_financial_full_dag.py   # Main DAG with 4 sequential tasks
+├── data\
+│   ├── raw\                              # Input Excel files (*.xlsx)
+│   └── processed\
+│       └── companies_financial_1403.db   # Output SQLite database
+├── src\                                  # Auxiliary / future modules
+└── requirements.txt                      # Python dependencies
+```
+
+### Data Pipeline Flow
+
+```text
+[ data/raw/*.xlsx ]
+        │
+        ▼  (Task 1: ingest_excel_to_tables)
+[ SQLite: statement_items & tbl_* ]
+        │
+        ▼  (Task 2: validate_and_build_features)
+[ SQLite: ml_validation_summary & ml_financial_features ]
+        │
+        ▼  (Task 3: train_and_predict_models)
+[ SQLite: ml_predictions, ml_feature_weights, ml_model_metrics ]
+        │
+        ▼  (Task 4: audit_output_tables)
+[ Final Table & Row-Count Audit ]
+```
+
+### Core SQLite Tables in `companies_financial_1403.db`
+
+| Table Name | Role in Pipeline |
+| :--- | :--- |
+| `statement_items` | Normalized long-format line items (`company_name`, `table_name`, `sheet_code`, `sheet_name`, `line_item`, `period`, `value_num`, `value_raw`) |
+| `tbl_*` (`tbl_income_statement`, `tbl_balance_sheet`, `tbl_cash_flow`, etc.) | Merged raw sheet tables under standardized English names |
+| `ml_validation_summary` | Data quality summary (total rows, valid numeric rows, and null/non-numeric rows) |
+| `ml_financial_features` | Engineered financial features, ratios, YoY changes, and profitability targets |
+| `ml_predictions` | Classification and regression predictions, profitability probabilities, and absolute regression errors |
+| `ml_feature_weights` | Feature coefficients and absolute importance weights for logistic and ridge models |
+| `ml_model_metrics` | Model evaluation metrics (`Accuracy`, `Precision`, `Recall`, `F1`, `MAE`, `RMSE`, and `Baseline` errors) |
+
+## 4. Setup & Execution
+
+### Prerequisites
+
+1. Place raw `.xlsx` financial statement files in:
+   `C:\Users\mehran\PycharmProjects\pythonProject\financial_statement\data\raw`
+2. Activate your virtual environment (`.venv`) with `apache-airflow`, `pandas`, `numpy`, `openpyxl`, and `scikit-learn` installed.
+3. Ensure Airflow is configured to scan the `dag` directory of the project (or use `dags` if required by your Airflow setup).
+
+### Test Run via CLI
+
+```powershell
+cd C:\Users\mehran\PycharmProjects\pythonProject\financial_statement
+airflow dags test companies_financial_end_to_end_tables_dag 2026-11-20
+```
+
+## 5. Roadmap
+
+### Phase 1: Baseline Pipeline & Table Generation
+* Automated extraction of Excel financial sheets into English SQLite tables.
+* Data validation summary, financial feature engineering, and `LogisticRegression` + `Ridge` model training.
+* Automated table and row-count audit at the end of each run.
+
+### Phase 2: Model Validation & Data Hardening
+* Add proper train/test splits or grouped/time-aware cross-validation (`GroupKFold` / `TimeSeriesSplit`) to prevent data leakage during model evaluation.
+* Add run IDs or execution timestamps to retain historical training runs and predictions instead of overwriting tables in place.
+* Expand sheet and line-item mappings to support additional reporting templates.
+
+### Phase 3: Production & Integration
+* Modularize ingestion, feature engineering, and modeling logic into clean reusable modules under `src/`.
+* Support syncing outputs to server databases (such as PostgreSQL) and exposing results to dashboards or APIs.
+* Add data-quality and model-drift alerting.
